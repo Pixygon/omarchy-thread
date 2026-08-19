@@ -1,0 +1,20 @@
+[package]
+name = "omarchy-thread"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Spatial rooms on the Thread, from the Omarchy bar — serve a world, watch who walks in, publish it to your own domain."
+repository = "https://github.com/Pixygon/omarchy-thread"
+
+[dependencies]
+serde_json = "1"
+tiny_http = "0.12"
+thread-manifest = "0.1"
+tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1

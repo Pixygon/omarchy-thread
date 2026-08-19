@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "io.pixygon.thread",
+  "name": "Thread",
+  "version": "0.1.0",
+  "author": "Pixygon",
+  "license": "MIT",
+  "description": "Open a room on the Thread from your bar — serve a 3D world off your own machine, watch who walks in, and publish it to a domain you own.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Thread",
+    "description": "A spatial room you host yourself. Shows who is inside, right now.",
+    "category": "Desktop",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "pollIntervalSec": 3
+    },
+    "schema": [
+      {
+        "key": "pollIntervalSec",
+        "type": "integer",
+        "label": "How often to check who is inside (seconds)",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 3
+      }
+    ]
+  }
+}
