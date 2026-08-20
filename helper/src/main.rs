@@ -496,8 +496,25 @@ fn cmd_validate(args: &[String]) -> Result<(), String> {
     let raw = fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     match validate_world(&raw) {
         Ok(()) => {
-            println!("{}", json!({ "path": path.display().to_string(), "valid": true }));
+            let world: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+            let tier = effective_tier(&world);
+            let claimed = world.pointer("/presence/mode").and_then(Value::as_str);
+            let disagrees = claimed.map(|c| c != tier).unwrap_or(false);
+            println!("{}", json!({
+                "path": path.display().to_string(), "valid": true,
+                "presence": tier, "declared": claimed, "mode_disagrees": disagrees
+            }));
             eprintln!("✓ {} is a conformant thread/0.1 world", path.display());
+            eprintln!("  presence: {tier}");
+            if disagrees {
+                // Advisory, like the reference lint: the world is still valid,
+                // but one of those two lines is wrong and the author should
+                // find out which.
+                eprintln!(
+                    "⚠ it declares mode \"{}\" — the addresses say \"{tier}\", and the addresses win",
+                    claimed.unwrap_or("")
+                );
+            }
             Ok(())
         }
         Err(e) => {
@@ -576,6 +593,29 @@ fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
     }
     fs::write(&out, format!("{raw}\n")).ok()?;
     Some(world)
+}
+
+/// The tier a world actually has, per the standard: the addresses are the
+/// facts and `mode` is only a declaration, so a world naming a relay is a relay
+/// world however it is labelled, and one naming nothing cannot host anyone
+/// whatever it claims. An empty `relays: []` is the absence of a relay, never a
+/// considered choice of none.
+fn effective_tier(world: &Value) -> &'static str {
+    let p = world.get("presence");
+    let names = |key: &str| -> bool {
+        match p.and_then(|p| p.get(key)) {
+            Some(Value::String(s)) => !s.trim().is_empty(),
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false)),
+            _ => false,
+        }
+    };
+    if names("relays") || names("relay") {
+        "relay"
+    } else if names("rendezvous") {
+        "p2p"
+    } else {
+        "solo"
+    }
 }
 
 /// A room this plugin hosts is meant to have people in it.
@@ -1190,6 +1230,22 @@ mod tests {
         let mut empty = json!({ "presence": { "mode": "relay", "relays": [] } });
         ensure_relay_presence(&mut empty);
         assert!(empty["presence"]["relays"][0].as_str().unwrap().starts_with("wss://"));
+    }
+
+    #[test]
+    fn the_addresses_decide_the_tier() {
+        let relay = json!({ "presence": { "mode": "solo", "relays": ["wss://r.example"] } });
+        assert_eq!(effective_tier(&relay), "relay", "naming a relay is not solo, whatever it says");
+
+        let p2p = json!({ "presence": { "rendezvous": "wss://rv.example" } });
+        assert_eq!(effective_tier(&p2p), "p2p");
+
+        let hollow = json!({ "presence": { "mode": "relay", "relays": [] } });
+        assert_eq!(effective_tier(&hollow), "solo", "a claim is not an address");
+
+        assert_eq!(effective_tier(&json!({ "world": { "id": "a" } })), "solo");
+        // legacy single-relay form
+        assert_eq!(effective_tier(&json!({ "presence": { "relay": "wss://old.example" } })), "relay");
     }
 
     #[test]

@@ -147,7 +147,7 @@ Middle-clicking the bar glyph walks straight in.
 ```
 omarchy-thread new <name>            make a room you own
 omarchy-thread rooms                 list your rooms
-omarchy-thread validate [room|file]  check a world against the reference types
+omarchy-thread validate [room|file]  check a world, and which presence tier it really has
 omarchy-thread open [room]           serve it and step inside
 omarchy-thread invite [room]         the address to hand someone
 omarchy-thread status                one line of JSON — what the bar reads
