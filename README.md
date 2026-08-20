@@ -92,7 +92,7 @@ Documented plainly, because you should know before installing anything:
 | **Network out** | One WebSocket to the presence relay in your world's manifest (default `wss://relay.pixygon.io`), to learn who is inside. Set `OMARCHY_THREAD_RELAY` to point at your own, or delete `presence.relays` from the world to run with no relay at all. |
 | **Files it writes** | `~/Worlds/` (your rooms) and `~/.local/state/omarchy-thread/state.json` (what the bar reads) |
 | **Privileges** | None. No root, no polkit, no system config, no pacman repo, no autostart. |
-| **Accounts** | None. The relay is anonymous — it takes a name claim if you set `OMARCHY_THREAD_NAME`, and nothing else. |
+| **Accounts** | None required. The relay accepts anonymous travelers; a Passport is optional and only makes you recognisable instead of "traveler 7". |
 
 ## Identity, and thread:// links
 
