@@ -585,7 +585,25 @@ fn cmd_invite(args: &[String]) -> Result<(), String> {
     Err(format!("\"{name}\" is not open yet — omarchy-thread open {name}"))
 }
 
+/// Walk somewhere. With a `thread://` address this is pure browsing — no
+/// serving, no room of your own — which is the other half of being a citizen
+/// of a medium rather than a host stuck admiring their own house.
 fn cmd_open(args: &[String]) -> Result<(), String> {
+    if let Some(addr) = args.first().filter(|a| a.starts_with("thread://")) {
+        if which("infinite").is_none() {
+            return Err(format!(
+                "no Thread browser installed — get one at https://thread.pixygon.io/browser ({addr})"
+            ));
+        }
+        Command::new("infinite")
+            .arg(addr)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot open the browser: {e}"))?;
+        println!("{addr}");
+        return Ok(());
+    }
     let (name, _) = resolve_room(args.first().map(String::as_str))?;
     let state = read_state();
     let already = state["serving"].as_bool().unwrap_or(false)
@@ -746,6 +764,14 @@ fn cmd_doctor() -> Result<(), String> {
     }
     eprintln!("relay      {}", relay());
     eprintln!("address    {}", lan_addr());
+    let token = fs::read_to_string(passport_path()).unwrap_or_default();
+    match passport_claims(token.trim()).get("name").and_then(Value::as_str) {
+        Some(n) => eprintln!("passport   {n}"),
+        None => eprintln!("passport   none — anonymous (fine)"),
+    }
+    if rooms.is_empty() {
+        eprintln!("\nNo rooms yet. Make one:  omarchy-thread new \"Monday Standup\"");
+    }
     Ok(())
 }
 

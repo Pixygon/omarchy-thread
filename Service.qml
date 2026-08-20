@@ -88,6 +88,7 @@ Item {
   function openRoom(name) { act(name ? ["open", name] : ["open"], "opening the room…") }
   function newRoom(name) { act(["new", name || "A Room"], "making a room…") }
   function stop() { act(["stop"], "closing…") }
+  function walkTo(address) { act(["open", address], "opening " + address + "…") }
 
   function copyInvite() {
     if (invite === "") return

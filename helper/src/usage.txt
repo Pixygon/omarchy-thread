@@ -2,7 +2,8 @@ omarchy-thread — spatial rooms on the Thread, from your bar
 
   new <name>            make a room you own (a directory with a world.json)
   rooms                 list your rooms
-  open [room]           serve it and step inside
+  open [room|thread://…] serve your room and step inside — or walk to
+                        any address on the Thread
   invite [room]         the address to hand someone
   status                one line of JSON — what the bar reads
   serve [room]          serve + watch, in the foreground (the daemon)

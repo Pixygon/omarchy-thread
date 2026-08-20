@@ -125,7 +125,7 @@ Panel {
               ? "helper not installed"
               : (thread.serving
                  ? (thread.count === 1 ? "1 traveler inside" : thread.count + " travelers inside")
-                 : "no room open")
+                 : (thread.rooms.length === 0 ? "no rooms yet — make one" : "no room open"))
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
@@ -181,48 +181,92 @@ Panel {
             elide: Text.ElideRight
           }
 
+          // Somewhere to type an address. A host that can only visit itself is
+          // a house, not a medium.
+          Rectangle {
+            width: parent.width
+            height: Style.space(30)
+            color: "transparent"
+            border.width: 1
+            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+            radius: Style.cornerRadius
+
+            TextInput {
+              id: addressInput
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(8)
+              anchors.rightMargin: Style.space(8)
+              verticalAlignment: TextInput.AlignVCenter
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              selectByMouse: true
+              clip: true
+              onAccepted: {
+                var addr = text.trim()
+                if (addr === "") return
+                if (addr.indexOf("thread://") !== 0) addr = "thread://" + addr
+                thread.walkTo(addr)
+                text = ""
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: addressInput.text === ""
+                text: "walk to thread://…"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+            }
+          }
+
           RowLayout {
             width: parent.width
             spacing: Style.space(8)
 
             PanelActionButton {
+              id: newBtn
               iconText: "󰐕"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.installed && !thread.busy
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.newRoom("A Room")
-              PanelToolTip { visible: parent.containsMouse; text: "New room"; fontFamily: root.fontFamily }
+              PanelToolTip { visible: newBtn.containsMouse; text: "New room"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
+              id: openBtn
               iconText: "󰈺"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.installed && !thread.busy
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.openRoom(thread.room)
-              PanelToolTip { visible: parent.containsMouse; text: "Step inside"; fontFamily: root.fontFamily }
+              PanelToolTip { visible: openBtn.containsMouse; text: "Step inside"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
+              id: copyBtn
               iconText: "󰆏"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.serving
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.copyInvite()
-              PanelToolTip { visible: parent.containsMouse; text: "Copy the address"; fontFamily: root.fontFamily }
+              PanelToolTip { visible: copyBtn.containsMouse; text: "Copy the address"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
+              id: stopBtn
               iconText: "󰅖"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.serving
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.stop()
-              PanelToolTip { visible: parent.containsMouse; text: "Close the room"; fontFamily: root.fontFamily }
+              PanelToolTip { visible: stopBtn.containsMouse; text: "Close the room"; fontFamily: root.fontFamily }
             }
           }
 

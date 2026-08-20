@@ -1,0 +1,31 @@
+# The helper is the part a stranger runs, so prove it builds and passes its
+# tests from nothing on a clean machine — including that the room we hand
+# people validates against the published thread-manifest crate.
+name: helper
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build
+        run: cargo build --release --manifest-path helper/Cargo.toml
+      - name: test
+        run: cargo test --release --manifest-path helper/Cargo.toml
+      - name: the manifest is valid JSON and names its entry points
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          m = json.load(open('manifest.json'))
+          assert m['schemaVersion'] == 1, 'schemaVersion must be 1'
+          assert not m['id'].startswith('omarchy.'), 'omarchy.* is reserved'
+          for kind, entry in m['entryPoints'].items():
+              assert pathlib.Path(entry).is_file(), f'{entry} is referenced but missing'
+          print('manifest ok:', m['id'], m['kinds'])
+          PY

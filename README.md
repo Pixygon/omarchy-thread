@@ -11,8 +11,6 @@ That is two people standing in a place you are hosting. Click the doorway to
 open a room, copy its address, and paste it to somebody. They walk in. Nobody
 signed up for anything, and nothing you made left your disk.
 
-![The doorway in the bar](preview.png)
-
 ## What it actually is
 
 The [Thread](https://github.com/Pixygon/thread-spec) is an open spatial medium:
