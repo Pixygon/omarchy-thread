@@ -553,8 +553,31 @@ fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
             .map(|st| st.success())
             .unwrap_or(false)
     };
+    // Ask for a room that owes nothing to anyone: models meshed locally into
+    // models/ beside the world, referenced by relative path. A room is a
+    // directory you can copy to a USB stick — that stops being true the moment
+    // its pillars live on someone's CDN. Each fallback drops one flag an older
+    // CLI won't know, so age costs a feature rather than the whole room.
     let relay = relay();
-    if !run(&["--relay", &relay]) && !run(&[]) {
+    let store = std::env::var("OMARCHY_THREAD_STORE").is_ok();
+    let ladder: &[&[&str]] = if store {
+        &[&["--relay", ""], &[]]
+    } else {
+        &[&["--relay", "", "--no-store"], &["--relay", ""], &[]]
+    };
+    let mut built = false;
+    for rung in ladder {
+        let args_owned: Vec<String> = rung
+            .iter()
+            .map(|a| if a.is_empty() { relay.clone() } else { (*a).to_string() })
+            .collect();
+        let refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
+        if run(&refs) {
+            built = true;
+            break;
+        }
+    }
+    if !built {
         let _ = fs::remove_file(&out);
         return None;
     }
@@ -841,16 +864,10 @@ fn cmd_publish(args: &[String]) -> Result<(), String> {
     let out = dir.join(".publish/.well-known/thread");
     fs::create_dir_all(&out).map_err(|e| format!("cannot prepare the upload: {e}"))?;
     fs::write(out.join("world.json"), &raw).map_err(|e| format!("{e}"))?;
-    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-        let p = entry.path();
-        let is_asset = p.is_file()
-            && p.file_name().and_then(|n| n.to_str()).map(|n| n != "world.json").unwrap_or(false);
-        if is_asset {
-            if let Some(fname) = p.file_name() {
-                let _ = fs::copy(&p, out.join(fname));
-            }
-        }
-    }
+    // Assets sit wherever the manifest's relative URIs point — `models/` for a
+    // self-contained room — so stage the whole tree, not just its top layer. A
+    // world published without the meshes it names is a room with no pillars.
+    copy_tree(&dir, &out, &dir.join(".publish"))?;
 
     println!(
         "{}",
@@ -859,6 +876,25 @@ fn cmd_publish(args: &[String]) -> Result<(), String> {
     eprintln!("✓ staged {}", out.display());
     eprintln!("  upload it:  rsync -av {}/ you@{}:/var/www/{}/.well-known/thread/", out.display(), host, host);
     eprintln!("  then:       omarchy-thread verify {host}");
+    Ok(())
+}
+
+/// Copy a room's files into the staging tree, skipping the staging tree itself.
+fn copy_tree(from: &Path, to: &Path, skip: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(from).map_err(|e| format!("{e}"))?.flatten() {
+        let path = entry.path();
+        if path == *skip {
+            continue;
+        }
+        let Some(name) = path.file_name() else { continue };
+        let target = to.join(name);
+        if path.is_dir() {
+            fs::create_dir_all(&target).map_err(|e| format!("{e}"))?;
+            copy_tree(&path, &target, skip)?;
+        } else if path.is_file() {
+            fs::copy(&path, &target).map_err(|e| format!("cannot stage {}: {e}", path.display()))?;
+        }
+    }
     Ok(())
 }
 

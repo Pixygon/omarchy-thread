@@ -24,10 +24,12 @@ This plugin makes your desktop one of those hosts.
 
 - **A room is a directory.** `~/Worlds/monday-standup/world.json` — a floor, a
   ring of pillars, a table, four places to stand. Copy it to a USB stick if you
-  like; it is yours. If you happen to have the Thread CLI installed, rooms are
-  designed by its level creator instead (real columns and arches, shopped from
-  a model store); if you don't, the built-in room is used and nothing about the
-  plugin changes. It is an upgrade, never a dependency.
+  like; it is yours, meshes and all. If you happen to have the Thread CLI
+  installed, rooms are designed by its level creator instead — real columns and
+  arches, meshed onto your own disk under `models/` and referenced by relative
+  path, so the room owes nothing to anyone's CDN. If you don't have it, the
+  built-in room is used and nothing about the plugin changes. It is an upgrade,
+  never a dependency.
 - **Serving it is one command.** The helper serves the manifest with the
   content type and CORS header the spec requires, on your LAN address.
 - **The bar watches the room, without entering it.** It *observes* the presence
@@ -135,6 +137,7 @@ stranger again.
 | `OMARCHY_THREAD_NAME` | `$USER` | the name co-travelers see |
 | `OMARCHY_THREAD_FIGURE` | `hall` | which figure the level creator builds, when present |
 | `OMARCHY_THREAD_NO_CLI` | unset | set it to always use the built-in room |
+| `OMARCHY_THREAD_STORE` | unset | set it to source models from the online store instead of meshing them locally |
 
 ## Keys, while the panel is open
 
