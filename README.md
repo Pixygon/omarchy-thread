@@ -1,5 +1,7 @@
 # Thread — a room on your bar
 
+[![helper](https://github.com/Pixygon/omarchy-thread/actions/workflows/ci.yml/badge.svg)](https://github.com/Pixygon/omarchy-thread/actions/workflows/ci.yml)
+
 Open a 3D room, served off your own machine, and see who walks into it from the
 Omarchy bar.
 
