@@ -1226,10 +1226,14 @@ mod tests {
         ensure_relay_presence(&mut own);
         assert_eq!(own["presence"]["relays"][0], "wss://elsewhere.example");
 
-        // An empty list is a gap, not a choice.
+        // An empty list is a gap, not a choice — and so is a blank entry.
         let mut empty = json!({ "presence": { "mode": "relay", "relays": [] } });
         ensure_relay_presence(&mut empty);
         assert!(empty["presence"]["relays"][0].as_str().unwrap().starts_with("wss://"));
+
+        let mut blank = json!({ "presence": { "mode": "relay", "relays": [""] } });
+        ensure_relay_presence(&mut blank);
+        assert!(blank["presence"]["relays"][0].as_str().unwrap().starts_with("wss://"));
     }
 
     #[test]
@@ -1242,6 +1246,13 @@ mod tests {
 
         let hollow = json!({ "presence": { "mode": "relay", "relays": [] } });
         assert_eq!(effective_tier(&hollow), "solo", "a claim is not an address");
+
+        // A blank string is an absence too, not an address. Counting it would
+        // mark the world hosted and open a socket to nowhere.
+        let blank = json!({ "presence": { "mode": "relay", "relays": [""] } });
+        assert_eq!(effective_tier(&blank), "solo");
+        let blank_legacy = json!({ "presence": { "relay": "   " } });
+        assert_eq!(effective_tier(&blank_legacy), "solo");
 
         assert_eq!(effective_tier(&json!({ "world": { "id": "a" } })), "solo");
         // legacy single-relay form
