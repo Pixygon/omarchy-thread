@@ -498,14 +498,19 @@ fn cmd_validate(args: &[String]) -> Result<(), String> {
         Ok(()) => {
             let world: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
             let tier = effective_tier(&world);
+            let missing = missing_assets(&world, path.parent().unwrap_or(Path::new(".")));
             let claimed = world.pointer("/presence/mode").and_then(Value::as_str);
             let disagrees = claimed.map(|c| c != tier).unwrap_or(false);
             println!("{}", json!({
                 "path": path.display().to_string(), "valid": true,
-                "presence": tier, "declared": claimed, "mode_disagrees": disagrees
+                "presence": tier, "declared": claimed, "mode_disagrees": disagrees,
+                "missing_assets": missing
             }));
             eprintln!("✓ {} is a conformant thread/0.1 world", path.display());
             eprintln!("  presence: {tier}");
+            for m in &missing {
+                eprintln!("✗ declared but not there: {m}");
+            }
             if disagrees {
                 // Advisory, like the reference lint: the world is still valid,
                 // but one of those two lines is wrong and the author should
@@ -515,7 +520,11 @@ fn cmd_validate(args: &[String]) -> Result<(), String> {
                     claimed.unwrap_or("")
                 );
             }
-            Ok(())
+            if missing.is_empty() {
+                Ok(())
+            } else {
+                Err(format!("{} declared asset(s) are not beside the manifest", missing.len()))
+            }
         }
         Err(e) => {
             println!("{}", json!({ "path": path.display().to_string(), "valid": false, "error": e }));
@@ -861,6 +870,18 @@ fn cmd_publish(args: &[String]) -> Result<(), String> {
     let raw = fs::read_to_string(dir.join("world.json")).unwrap_or_default();
     validate_world(&raw)?;
 
+    let world: Value = serde_json::from_str(&raw).map_err(|e| format!("{e}"))?;
+    let missing = missing_assets(&world, &dir);
+    if !missing.is_empty() {
+        for m in &missing {
+            eprintln!("✗ declared but not there: {m}");
+        }
+        return Err(format!(
+            "{} asset(s) the world names are missing — publishing this would put a room with holes in it on {host}",
+            missing.len()
+        ));
+    }
+
     let out = dir.join(".publish/.well-known/thread");
     fs::create_dir_all(&out).map_err(|e| format!("cannot prepare the upload: {e}"))?;
     fs::write(out.join("world.json"), &raw).map_err(|e| format!("{e}"))?;
@@ -877,6 +898,32 @@ fn cmd_publish(args: &[String]) -> Result<(), String> {
     eprintln!("  upload it:  rsync -av {}/ you@{}:/var/www/{}/.well-known/thread/", out.display(), host, host);
     eprintln!("  then:       omarchy-thread verify {host}");
     Ok(())
+}
+
+/// Every relative asset the world declares must actually be beside it.
+///
+/// A manifest naming meshes that aren't there is still perfectly valid JSON, so
+/// nothing complains: the room simply loads with holes in it, every time,
+/// forever. Absolute URIs are somebody else's uptime and not checkable here;
+/// `wasm` is exempt because a browser is already permitted to ignore a module
+/// it can't sandbox, so an absent behavior degrades to what the spec promises
+/// while an absent mesh leaves a hole. (Conformance clause C8.)
+fn missing_assets(world: &Value, dir: &Path) -> Vec<String> {
+    let mut missing = vec![];
+    for asset in world.get("assets").and_then(Value::as_array).into_iter().flatten() {
+        let Some(uri) = asset.get("uri").and_then(Value::as_str) else { continue };
+        if uri.contains("://") || uri.starts_with("//") {
+            continue; // a link out, not a file of ours
+        }
+        if asset.get("kind").and_then(Value::as_str) == Some("wasm") {
+            continue;
+        }
+        if uri.contains("..") || !dir.join(uri).is_file() {
+            let id = asset.get("id").and_then(Value::as_str).unwrap_or("asset");
+            missing.push(format!("{id} → {uri}"));
+        }
+    }
+    missing
 }
 
 /// Copy a room's files into the staging tree, skipping the staging tree itself.
@@ -1293,6 +1340,29 @@ mod tests {
         assert_eq!(effective_tier(&json!({ "world": { "id": "a" } })), "solo");
         // legacy single-relay form
         assert_eq!(effective_tier(&json!({ "presence": { "relay": "wss://old.example" } })), "relay");
+    }
+
+    #[test]
+    fn a_world_may_not_name_meshes_it_lacks() {
+        let dir = std::env::temp_dir().join(format!("ot-assets-{}", std::process::id()));
+        let _ = fs::create_dir_all(dir.join("models"));
+        let _ = fs::write(dir.join("models/there.glb"), b"glb");
+
+        let world = json!({ "assets": [
+            { "id": "here",   "kind": "gltf", "uri": "models/there.glb" },
+            { "id": "gone",   "kind": "gltf", "uri": "models/missing.glb" },
+            { "id": "remote", "kind": "gltf", "uri": "https://cdn.example/x.glb" },
+            { "id": "code",   "kind": "wasm", "uri": "behaviors/never-shipped.wasm" },
+            { "id": "escape", "kind": "gltf", "uri": "../../etc/passwd" },
+        ]});
+        let missing = missing_assets(&world, &dir);
+        assert!(missing.iter().any(|m| m.starts_with("gone")), "a missing mesh is a hole in the room");
+        assert!(missing.iter().any(|m| m.starts_with("escape")), "an escaping path is never ours to serve");
+        assert!(!missing.iter().any(|m| m.starts_with("here")));
+        assert!(!missing.iter().any(|m| m.starts_with("remote")), "someone else's uptime is not our check");
+        assert!(!missing.iter().any(|m| m.starts_with("code")), "a browser may ignore wasm it cannot sandbox");
+        assert_eq!(missing.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

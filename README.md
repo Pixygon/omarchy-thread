@@ -150,7 +150,7 @@ Middle-clicking the bar glyph walks straight in.
 ```
 omarchy-thread new <name>            make a room you own
 omarchy-thread rooms                 list your rooms
-omarchy-thread validate [room|file]  check a world, and which presence tier it really has
+omarchy-thread validate [room|file]  check a world: conformance, presence tier, missing meshes
 omarchy-thread open [room]           serve it and step inside
 omarchy-thread invite [room]         the address to hand someone
 omarchy-thread status                one line of JSON — what the bar reads
@@ -159,6 +159,11 @@ omarchy-thread verify <host>         check a live host the way a browser does
 omarchy-thread stop                  close the room
 omarchy-thread doctor                what's installed, what's reachable
 ```
+
+`validate` refuses a room that names meshes which aren't beside it, and
+`publish` won't stage one — a manifest missing its assets is still valid JSON,
+so the failure is otherwise silent and permanent: the room simply loads with
+holes in it, every time. (Conformance clause C8.)
 
 `verify` is not Pixygon-specific and has no allegiance: point it at anybody's
 domain and it will tell you whether they are conformant.
