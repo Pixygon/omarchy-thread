@@ -78,6 +78,13 @@ fn traveler_name() -> String {
 /// pillars, a low table to gather around, spawns that face each other, and a
 /// door back out to the wider Thread. Builtin meshes only — no asset fetch, so
 /// a fresh room is conformant and renderable the instant it is written.
+///
+/// GEOMETRY CONTRACT: a builtin mesh is **one unit, centred on its origin**, so
+/// `scale.y` is the finished height in metres and a thing rests on the floor
+/// when `position.y == scale.y / 2`. (The reference browser's `cylinder` was
+/// two units until Infinite v0.111.0; anything authored against that older
+/// build stands at double height and half-buried. `rests_on_the_floor` below
+/// is what stops this drifting again.)
 fn template_world(slug: &str, title: &str) -> Value {
     let mut prefabs = vec![
         json!({ "id": "60000001", "mesh": { "builtin": "plane" },
@@ -993,6 +1000,46 @@ mod tests {
     fn template_is_conformant() {
         let raw = serde_json::to_string(&template_world("test-room", "Test Room")).unwrap();
         validate_world(&raw).expect("the room we hand people must be valid");
+    }
+
+    /// Everything in the room stands ON the floor. With unit builtins that is
+    /// exactly `position.y == scale.y / 2` — the invariant a doubled mesh
+    /// height silently breaks, and the reason the first render of a template
+    /// looks "wrong but plausible" rather than obviously broken.
+    #[test]
+    fn rests_on_the_floor() {
+        let world = template_world("test-room", "Test Room");
+        let placements = world["placements"].as_array().unwrap();
+        let mut standing = 0;
+        for p in placements {
+            let name = p["name"].as_str().unwrap_or("");
+            if name == "floor" || name == "lintel" {
+                continue; // the floor IS the ground; the lintel spans the doorway
+            }
+            let y = p["position"][1].as_f64().unwrap();
+            let h = p["scale"][1].as_f64().unwrap();
+            assert!(
+                (y - h / 2.0).abs() < 0.05,
+                "{name} floats or is buried: y={y}, height={h} (expected y≈{})",
+                h / 2.0
+            );
+            standing += 1;
+        }
+        assert!(standing >= 9, "expected the pillars and the table, got {standing}");
+    }
+
+    #[test]
+    fn the_room_is_human_sized() {
+        let world = template_world("test-room", "Test Room");
+        let by_name = |n: &str| -> f64 {
+            world["placements"].as_array().unwrap().iter()
+                .find(|p| p["name"].as_str() == Some(n))
+                .map(|p| p["scale"][1].as_f64().unwrap()).unwrap()
+        };
+        let table = by_name("table");
+        assert!((0.6..=0.9).contains(&table), "a table you could stand at, not vault: {table}m");
+        let pillar = by_name("pillar-1");
+        assert!((2.4..=4.0).contains(&pillar), "a pillar, not a tower: {pillar}m");
     }
 
     #[test]

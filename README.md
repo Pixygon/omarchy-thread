@@ -77,6 +77,11 @@ install -Dm755 target/release/omarchy-thread ~/.local/bin/omarchy-thread
 It is ~700 lines of Rust with four dependencies, all from crates.io. Read it
 before you run it; it is short on purpose.
 
+The room assumes a builtin mesh is one unit tall and centred — true in the
+reference browser from Infinite v0.111.0 onward. On an older build the pillars
+render at double height and half-sunk, which is a browser to update rather than
+a world to edit.
+
 **A browser to walk in with** — [Infinite](https://thread.pixygon.io/browser)
 is the reference one. The plugin works without it (it will still serve rooms
 and show you who is inside), it just can't open the door for you.
