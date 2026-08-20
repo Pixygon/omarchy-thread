@@ -150,7 +150,7 @@ fn template_world(slug: &str, title: &str) -> Value {
             { "id": "out", "position": [0, 1.5, -6.4], "scale": [2.4, 3.0, 0.2],
               "to": "thread://pixygon.io", "label": "The Thread", "preview": "static" }
         ],
-        "presence": { "relays": [relay()], "max_occupants": 32, "voice": true }
+        "presence": { "mode": "relay", "relays": [relay()], "max_occupants": 32, "voice": true }
     })
 }
 
@@ -522,14 +522,22 @@ fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
     let figure = std::env::var("OMARCHY_THREAD_FIGURE").unwrap_or_else(|_| "hall".into());
     let out = dir.join("world.json");
     let args = json!([title, 14, 5.2, 12, "classical", "marble", "dusk"]).to_string();
-    let status = Command::new("thread")
-        .args(["level", "--figure", &figure, "--args", &args, "-o"])
-        .arg(&out)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()?;
-    if !status.success() {
+    // Ask for a relay outright. Older CLIs don't know the flag and exit
+    // non-zero, so fall back to asking without it — losing the flag should
+    // cost you the relay, not the whole designed room.
+    let run = |extra: &[&str]| -> bool {
+        Command::new("thread")
+            .args(["level", "--figure", &figure, "--args", &args, "-o"])
+            .arg(&out)
+            .args(extra)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|st| st.success())
+            .unwrap_or(false)
+    };
+    let relay = relay();
+    if !run(&["--relay", &relay]) && !run(&[]) {
         let _ = fs::remove_file(&out);
         return None;
     }
@@ -555,9 +563,7 @@ fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
     fill("description", json!(format!("{title} — a room on the Thread, served from a desk.")));
     fill("license", json!("CC-BY-4.0"));
     fill("codex", json!([]));
-    if world.get("presence").map(|p| p.is_null()).unwrap_or(true) {
-        world["presence"] = json!({ "relays": [relay()], "max_occupants": 32, "voice": true });
-    }
+    ensure_relay_presence(&mut world);
     // A veil with nowhere to go is not a door.
     if let Some(portals) = world.get_mut("portals").and_then(Value::as_array_mut) {
         portals.retain(|p| p.get("to").and_then(Value::as_str).map(|t| t.starts_with("thread://")).unwrap_or(false));
@@ -570,6 +576,31 @@ fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
     }
     fs::write(&out, format!("{raw}\n")).ok()?;
     Some(world)
+}
+
+/// A room this plugin hosts is meant to have people in it.
+///
+/// The designer states solo explicitly now (`{"mode":"solo"}`) rather than
+/// omitting presence, which is better for every other reader and quietly fatal
+/// here: a check for "absent or null" passes right over it and the room ships
+/// silent. Presence is therefore decided by whether a relay is actually named,
+/// never by whether the key exists.
+fn ensure_relay_presence(world: &mut Value) {
+    let named_relay = world
+        .get("presence")
+        .and_then(|p| p.get("relays"))
+        .and_then(Value::as_array)
+        .map(|r| r.iter().any(|v| v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false)))
+        .unwrap_or(false);
+    if named_relay {
+        return;
+    }
+    world["presence"] = json!({
+        "mode": "relay",
+        "relays": [relay()],
+        "max_occupants": 32,
+        "voice": true
+    });
 }
 
 fn cmd_rooms() -> Result<(), String> {
@@ -1136,6 +1167,29 @@ mod tests {
         assert!((0.6..=0.9).contains(&table), "a table you could stand at, not vault: {table}m");
         let pillar = by_name("pillar-1");
         assert!((2.4..=4.0).contains(&pillar), "a pillar, not a tower: {pillar}m");
+    }
+
+    #[test]
+    fn a_hosted_room_is_never_left_solo() {
+        // The three shapes a designer can hand back.
+        let mut omitted = json!({ "world": { "id": "a" } });
+        ensure_relay_presence(&mut omitted);
+        assert_eq!(omitted["presence"]["mode"], "relay");
+
+        let mut stated_solo = json!({ "world": { "id": "a" }, "presence": { "mode": "solo", "voice": false } });
+        ensure_relay_presence(&mut stated_solo);
+        assert_eq!(stated_solo["presence"]["mode"], "relay", "stated solo must still be upgraded");
+        assert_eq!(stated_solo["presence"]["voice"], true);
+
+        // An author who named their own relay keeps it.
+        let mut own = json!({ "presence": { "mode": "relay", "relays": ["wss://elsewhere.example"], "voice": true } });
+        ensure_relay_presence(&mut own);
+        assert_eq!(own["presence"]["relays"][0], "wss://elsewhere.example");
+
+        // An empty list is a gap, not a choice.
+        let mut empty = json!({ "presence": { "mode": "relay", "relays": [] } });
+        ensure_relay_presence(&mut empty);
+        assert!(empty["presence"]["relays"][0].as_str().unwrap().starts_with("wss://"));
     }
 
     #[test]
