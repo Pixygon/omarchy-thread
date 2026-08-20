@@ -2,6 +2,7 @@ omarchy-thread — spatial rooms on the Thread, from your bar
 
   new <name>            make a room you own (a directory with a world.json)
   rooms                 list your rooms
+  validate [room|file]  check a world against the reference types
   open [room|thread://…] serve your room and step inside — or walk to
                         any address on the Thread
   invite [room]         the address to hand someone

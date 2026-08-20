@@ -465,16 +465,111 @@ fn cmd_new(args: &[String]) -> Result<(), String> {
     }
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
 
-    let world = template_world(&slug, &title);
-    let raw = serde_json::to_string_pretty(&world).unwrap_or_default();
-    validate_world(&raw)?;
-    fs::write(dir.join("world.json"), format!("{raw}\n"))
-        .map_err(|e| format!("cannot write world.json: {e}"))?;
+    let designed = generate_with_cli(&dir, &title).is_some();
+    if !designed {
+        let world = template_world(&slug, &title);
+        let raw = serde_json::to_string_pretty(&world).unwrap_or_default();
+        validate_world(&raw)?;
+        fs::write(dir.join("world.json"), format!("{raw}\n"))
+            .map_err(|e| format!("cannot write world.json: {e}"))?;
+    }
 
-    println!("{}", json!({ "room": slug, "path": dir.display().to_string(), "title": title }));
+    println!("{}", json!({
+        "room": slug, "path": dir.display().to_string(), "title": title,
+        "built_by": if designed { "thread level" } else { "built-in template" }
+    }));
     eprintln!("✓ {} — a room of your own at {}", title, dir.display());
+    if designed {
+        eprintln!("  designed by the Thread level creator");
+    }
     eprintln!("  open it:    omarchy-thread open {slug}");
     Ok(())
+}
+
+/// Check a world.json — a room of yours, or any file. Uses the same reference
+/// types a browser uses, so "valid here" means "valid there".
+fn cmd_validate(args: &[String]) -> Result<(), String> {
+    let path = match args.first() {
+        Some(a) if Path::new(a).is_file() => PathBuf::from(a),
+        other => resolve_room(other.map(String::as_str))?.1.join("world.json"),
+    };
+    let raw = fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    match validate_world(&raw) {
+        Ok(()) => {
+            println!("{}", json!({ "path": path.display().to_string(), "valid": true }));
+            eprintln!("✓ {} is a conformant thread/0.1 world", path.display());
+            Ok(())
+        }
+        Err(e) => {
+            println!("{}", json!({ "path": path.display().to_string(), "valid": false, "error": e }));
+            Err(e)
+        }
+    }
+}
+
+/// Ask the Thread CLI's level designer for a room, when the author has it.
+///
+/// The generator knows far more about making a place worth standing in than a
+/// hardcoded template does — it shops the Quarry for real columns and arches.
+/// But it is not a dependency: it lives in a different toolchain, it wants the
+/// network, and a stranger installing this plugin will not have it. So it is
+/// strictly an upgrade path, and any failure falls back to the built-in room
+/// rather than leaving someone with no room at all.
+fn generate_with_cli(dir: &Path, title: &str) -> Option<Value> {
+    if std::env::var("OMARCHY_THREAD_NO_CLI").is_ok() || which("thread").is_none() {
+        return None;
+    }
+    let figure = std::env::var("OMARCHY_THREAD_FIGURE").unwrap_or_else(|_| "hall".into());
+    let out = dir.join("world.json");
+    let args = json!([title, 14, 5.2, 12, "classical", "marble", "dusk"]).to_string();
+    let status = Command::new("thread")
+        .args(["level", "--figure", &figure, "--args", &args, "-o"])
+        .arg(&out)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() {
+        let _ = fs::remove_file(&out);
+        return None;
+    }
+    let mut world: Value = serde_json::from_str(&fs::read_to_string(&out).ok()?).ok()?;
+
+    // The designer builds the room; the plugin supplies what a *hosted* room
+    // needs and it leaves blank — who made it, and the relay that lets anyone
+    // else be in it. Without presence a generated room is beautiful and empty.
+    let w = world.get_mut("world")?.as_object_mut()?;
+    // The designer emits these keys and leaves them empty, so "absent" is not
+    // the test — null and "" both mean nobody filled this in.
+    let blank = |v: Option<&Value>| match v {
+        None | Some(Value::Null) => true,
+        Some(Value::String(s)) => s.trim().is_empty(),
+        _ => false,
+    };
+    let mut fill = |key: &str, value: Value| {
+        if blank(w.get(key)) {
+            w.insert(key.to_string(), value);
+        }
+    };
+    fill("author", json!({ "id": format!("did:omarchy:{}", traveler_name()), "name": traveler_name() }));
+    fill("description", json!(format!("{title} — a room on the Thread, served from a desk.")));
+    fill("license", json!("CC-BY-4.0"));
+    fill("codex", json!([]));
+    if world.get("presence").map(|p| p.is_null()).unwrap_or(true) {
+        world["presence"] = json!({ "relays": [relay()], "max_occupants": 32, "voice": true });
+    }
+    // A veil with nowhere to go is not a door.
+    if let Some(portals) = world.get_mut("portals").and_then(Value::as_array_mut) {
+        portals.retain(|p| p.get("to").and_then(Value::as_str).map(|t| t.starts_with("thread://")).unwrap_or(false));
+    }
+
+    let raw = serde_json::to_string_pretty(&world).ok()?;
+    if validate_world(&raw).is_err() {
+        let _ = fs::remove_file(&out);
+        return None;
+    }
+    fs::write(&out, format!("{raw}\n")).ok()?;
+    Some(world)
 }
 
 fn cmd_rooms() -> Result<(), String> {
@@ -978,6 +1073,7 @@ fn main() {
         "verify" => cmd_verify(&rest),
         "stop" => cmd_stop(),
         "doctor" => cmd_doctor(),
+        "validate" => cmd_validate(&rest),
         "passport" => cmd_passport(&rest),
         "handler" => cmd_handler(&rest),
         "-h" | "--help" | "help" => {
