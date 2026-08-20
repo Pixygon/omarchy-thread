@@ -94,6 +94,29 @@ Documented plainly, because you should know before installing anything:
 | **Privileges** | None. No root, no polkit, no system config, no pacman repo, no autostart. |
 | **Accounts** | None. The relay is anonymous — it takes a name claim if you set `OMARCHY_THREAD_NAME`, and nothing else. |
 
+## Identity, and thread:// links
+
+The plugin is not a renderer — [Infinite](https://thread.pixygon.io/browser) is
+the browser, the way Firefox is for the web. What the plugin does is make this
+desktop a first-class citizen of the Thread:
+
+```bash
+omarchy-thread handler install   # thread:// links open a world, anywhere on the desktop
+omarchy-thread passport status   # who you are, if you want to be anyone
+```
+
+**Anonymous is the default and always works** — the relay takes travelers with
+no identity at all. A Passport is the portable "you" (a name, an avatar, and
+consent) that makes you recognisable across worlds instead of "traveler 7". If
+you have one, `omarchy-thread passport set <token>` writes it to
+`~/.config/infinite/passport.token` — the same file the browser already reads,
+so signing in once signs you in everywhere. `passport clear` makes you a
+stranger again.
+
+`handler install` is the only thing here that touches your desktop's settings
+(the `x-scheme-handler/thread` default), it is never done for you, and
+`handler remove` undoes it.
+
 ## Configuration
 
 | Variable | Default | |

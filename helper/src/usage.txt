@@ -10,6 +10,10 @@ omarchy-thread — spatial rooms on the Thread, from your bar
   publish <host> [room] stage the room for a domain you own
   verify <host>         check a live host the way a browser does
   doctor                what's installed, what's reachable
+  passport [status|set <token>|clear]
+                        the portable "you" the browser already reads
+  handler [status|install|remove]
+                        make thread:// links open on this desktop
 
 A room is a directory. Publishing is three files. Nothing here is
 Pixygon-only: the format, the resolution rule and the presence wire are

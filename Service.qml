@@ -25,6 +25,7 @@ Item {
   property var occupants: []
   property int count: 0
   property var rooms: []
+  property string signedInAs: ""
   property string actionStatus: ""
   property string lastError: ""
 
@@ -71,6 +72,7 @@ Item {
     relayConnected = s.relay_connected === true
     occupants = s.occupants || []
     count = Number(s.count || 0)
+    signedInAs = s.signed_in_as ? String(s.signed_in_as) : ""
   }
 
   // Every button is the same shape: run the helper, say what happened, look

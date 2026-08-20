@@ -491,6 +491,11 @@ fn cmd_rooms() -> Result<(), String> {
 
 fn cmd_status() -> Result<(), String> {
     let mut state = read_state();
+    let token = fs::read_to_string(passport_path()).unwrap_or_default().trim().to_string();
+    state["signed_in_as"] = passport_claims(&token)
+        .get("name")
+        .cloned()
+        .unwrap_or(Value::Null);
     // A stale state file (the daemon was killed) must not show a room as live.
     if state["serving"].as_bool().unwrap_or(false) {
         let pid = state["pid"].as_u64().unwrap_or(0);
@@ -744,6 +749,178 @@ fn cmd_doctor() -> Result<(), String> {
     Ok(())
 }
 
+/// Where the reference browser looks for the traveler's Passport. The plugin
+/// does not mint identity and does not hold a second copy of it — it writes the
+/// one file Infinite already reads, so signing in once is signing in.
+fn passport_path() -> PathBuf {
+    std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home().join(".config"))
+        .join("infinite")
+        .join("passport.token")
+}
+
+/// Read the claims out of a Passport without verifying it. Verification is the
+/// relay's job against the issuer's keys; here we only want a name to show, and
+/// an unreadable token is simply an anonymous one.
+fn passport_claims(token: &str) -> Value {
+    let Some(payload) = token.split('.').nth(1) else {
+        return json!({});
+    };
+    let mut buf = payload.replace('-', "+").replace('_', "/");
+    while buf.len() % 4 != 0 {
+        buf.push('=');
+    }
+    let Some(bytes) = b64_decode(&buf) else { return json!({}) };
+    serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}))
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let val = |c: u8| -> Option<u32> { TABLE.iter().position(|&t| t == c).map(|i| i as u32) };
+    let mut out = Vec::new();
+    let bytes: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    for chunk in bytes.chunks(4) {
+        let mut acc = 0u32;
+        let mut n: usize = 0;
+        for &c in chunk {
+            if c == b'=' {
+                break;
+            }
+            acc = (acc << 6) | val(c)?;
+            n += 1;
+        }
+        acc <<= 6 * (4 - n);
+        for i in 0..n.saturating_sub(1) {
+            out.push(((acc >> (16 - 8 * i)) & 0xff) as u8);
+        }
+    }
+    Some(out)
+}
+
+fn cmd_passport(args: &[String]) -> Result<(), String> {
+    let path = passport_path();
+    match args.first().map(String::as_str) {
+        None | Some("status") => {
+            let token = fs::read_to_string(&path).unwrap_or_default().trim().to_string();
+            let claims = passport_claims(&token);
+            let out = json!({
+                "path": path.display().to_string(),
+                "present": !token.is_empty(),
+                "name": claims.get("name").and_then(Value::as_str),
+                "sub": claims.get("sub").and_then(Value::as_str),
+            });
+            println!("{out}");
+            if token.is_empty() {
+                eprintln!("no passport — you walk anonymously, which is a valid way to walk");
+                eprintln!("  get one:  https://pixygon.io/passport   then:  omarchy-thread passport set <token>");
+            } else {
+                let who = claims.get("name").and_then(Value::as_str).unwrap_or("(no name claim)");
+                eprintln!("signed in as {who}");
+            }
+            Ok(())
+        }
+        Some("set") => {
+            let token = args.get(1).ok_or("usage: omarchy-thread passport set <token>")?;
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|e| format!("{e}"))?;
+            }
+            fs::write(&path, format!("{}\n", token.trim())).map_err(|e| format!("{e}"))?;
+            // A passport is a bearer token: nobody else on this machine needs it.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+            }
+            eprintln!("✓ passport saved to {}", path.display());
+            cmd_passport(&[])
+        }
+        Some("clear") => {
+            let _ = fs::remove_file(&path);
+            eprintln!("✓ passport cleared — you are anonymous again");
+            Ok(())
+        }
+        Some(other) => Err(format!("unknown passport command \"{other}\" (status | set | clear)")),
+    }
+}
+
+fn desktop_file_path() -> PathBuf {
+    std::env::var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home().join(".local/share"))
+        .join("applications")
+        .join("omarchy-thread.desktop")
+}
+
+/// Make `thread://` addresses clickable everywhere on the desktop — a link in a
+/// chat window opens the world, the way an http:// link opens a page. This
+/// edits your desktop's default-application table, so it only ever happens when
+/// you ask for it by name.
+fn cmd_handler(args: &[String]) -> Result<(), String> {
+    let path = desktop_file_path();
+    match args.first().map(String::as_str) {
+        None | Some("status") => {
+            let current = Command::new("xdg-mime")
+                .args(["query", "default", "x-scheme-handler/thread"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+            println!(
+                "{}",
+                json!({ "installed": path.exists(), "handler": current, "desktop_file": path.display().to_string() })
+            );
+            if current.is_empty() {
+                eprintln!("thread:// links are not handled — omarchy-thread handler install");
+            } else {
+                eprintln!("thread:// opens with {current}");
+            }
+            Ok(())
+        }
+        Some("install") => {
+            if which("infinite").is_none() {
+                eprintln!("note: the Infinite browser isn't installed yet — links will register but not open");
+            }
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|e| format!("{e}"))?;
+            }
+            fs::write(
+                &path,
+                "[Desktop Entry]\n\
+                 Type=Application\n\
+                 Name=Thread\n\
+                 Comment=Open a place on the Thread\n\
+                 Exec=infinite %u\n\
+                 Terminal=false\n\
+                 NoDisplay=true\n\
+                 MimeType=x-scheme-handler/thread;\n",
+            )
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+            let _ = Command::new("update-desktop-database")
+                .arg(path.parent().unwrap_or(Path::new(".")))
+                .status();
+            let ok = Command::new("xdg-mime")
+                .args(["default", "omarchy-thread.desktop", "x-scheme-handler/thread"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                return Err("xdg-mime would not set the default handler".into());
+            }
+            eprintln!("✓ thread:// links now open in the browser");
+            Ok(())
+        }
+        Some("remove") => {
+            let _ = fs::remove_file(&path);
+            let _ = Command::new("update-desktop-database")
+                .arg(path.parent().unwrap_or(Path::new(".")))
+                .status();
+            eprintln!("✓ thread:// handler removed");
+            Ok(())
+        }
+        Some(other) => Err(format!("unknown handler command \"{other}\" (status | install | remove)")),
+    }
+}
+
 fn usage() {
     eprintln!("{}", include_str!("usage.txt"));
 }
@@ -768,6 +945,8 @@ fn main() {
         "verify" => cmd_verify(&rest),
         "stop" => cmd_stop(),
         "doctor" => cmd_doctor(),
+        "passport" => cmd_passport(&rest),
+        "handler" => cmd_handler(&rest),
         "-h" | "--help" | "help" => {
             usage();
             Ok(())
@@ -810,6 +989,20 @@ mod tests {
         assert_eq!(roster.values().cloned().collect::<Vec<_>>(), vec!["linus"]);
         // A pose storm must not churn the bar.
         assert!(!apply_presence(r#"{"t":"pose","id":3}"#, &mut roster));
+    }
+
+    #[test]
+    fn claims_read_without_verifying() {
+        // {"sub":"did:pixygon:ada","name":"Ada"} as an unsigned JWT body.
+        let token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJkaWQ6cGl4eWdvbjphZGEiLCJuYW1lIjoiQWRhIn0.";
+        let claims = passport_claims(token);
+        assert_eq!(claims.get("name").and_then(Value::as_str), Some("Ada"));
+        assert_eq!(claims.get("sub").and_then(Value::as_str), Some("did:pixygon:ada"));
+    }
+
+    #[test]
+    fn an_opaque_token_is_simply_anonymous() {
+        assert_eq!(passport_claims("not-a-jwt"), json!({}));
     }
 
     #[test]

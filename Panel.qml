@@ -170,6 +170,17 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Text {
+            width: parent.width
+            text: thread.signedInAs !== ""
+              ? "signed in as " + thread.signedInAs
+              : "walking anonymously"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+          }
+
           RowLayout {
             width: parent.width
             spacing: Style.space(8)
