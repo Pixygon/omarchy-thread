@@ -795,12 +795,12 @@ fn cmd_invite(args: &[String]) -> Result<(), String> {
 /// of a medium rather than a host stuck admiring their own house.
 fn cmd_open(args: &[String]) -> Result<(), String> {
     if let Some(addr) = args.first().filter(|a| a.starts_with("thread://")) {
-        if which("infinite").is_none() {
+        if browser().is_none() {
             return Err(format!(
                 "no Thread browser installed — get one at https://thread.pixygon.io/browser ({addr})"
             ));
         }
-        Command::new("infinite")
+        Command::new(browser().unwrap_or_else(|| PathBuf::from("infinite")))
             .arg(addr)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -834,8 +834,8 @@ fn cmd_open(args: &[String]) -> Result<(), String> {
     if invite.is_empty() {
         return Err("the room did not come up".into());
     }
-    if which("infinite").is_some() {
-        let _ = Command::new("infinite").arg(&invite).spawn();
+    if browser().is_some() {
+        let _ = Command::new(browser().unwrap_or_else(|| PathBuf::from("infinite"))).arg(&invite).spawn();
     } else {
         eprintln!("The Infinite browser isn't installed — the room is open at {invite}");
         eprintln!("Get it: https://thread.pixygon.io/browser");
@@ -1001,12 +1001,24 @@ fn which(bin: &str) -> Option<PathBuf> {
     })
 }
 
+/// The names a Thread browser might be installed under, in preference order.
+///
+/// `infinite` is the product. `infinite-wgpu` is a cargo bin target named after
+/// the renderer backend, and it is what a release tarball actually contains —
+/// so a plugin that only looked for `infinite` reported "browser not installed"
+/// on a machine where the browser was installed and working.
+const BROWSER_BINS: [&str; 2] = ["infinite", "infinite-wgpu"];
+
+fn browser() -> Option<PathBuf> {
+    BROWSER_BINS.iter().find_map(|b| which(b))
+}
+
 fn cmd_doctor() -> Result<(), String> {
     let rooms = list_rooms();
     let report = json!({
         "rooms_dir": rooms_dir().display().to_string(),
         "rooms": rooms.len(),
-        "browser": which("infinite").map(|p| p.display().to_string()),
+        "browser": browser().map(|p| p.display().to_string()),
         "relay": relay(),
         "lan": lan_addr(),
         "name": traveler_name(),
@@ -1014,7 +1026,7 @@ fn cmd_doctor() -> Result<(), String> {
     });
     println!("{report}");
     eprintln!("rooms      {} in {}", rooms.len(), rooms_dir().display());
-    match which("infinite") {
+    match browser() {
         Some(p) => eprintln!("browser    {}", p.display()),
         None => eprintln!("browser    not installed — https://thread.pixygon.io/browser"),
     }
@@ -1159,7 +1171,7 @@ fn cmd_handler(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some("install") => {
-            if which("infinite").is_none() {
+            if browser().is_none() {
                 eprintln!("note: the Infinite browser isn't installed yet — links will register but not open");
             }
             if let Some(dir) = path.parent() {
