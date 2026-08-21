@@ -228,45 +228,45 @@ Panel {
             PanelActionButton {
               id: newBtn
               iconText: "󰐕"
+              tooltipText: "New room"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.installed && !thread.busy
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.newRoom("A Room")
-              PanelToolTip { visible: newBtn.containsMouse; text: "New room"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
               id: openBtn
               iconText: "󰈺"
+              tooltipText: "Step inside"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.installed && !thread.busy
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.openRoom(thread.room)
-              PanelToolTip { visible: openBtn.containsMouse; text: "Step inside"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
               id: copyBtn
               iconText: "󰆏"
+              tooltipText: "Copy the address"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.serving
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.copyInvite()
-              PanelToolTip { visible: copyBtn.containsMouse; text: "Copy the address"; fontFamily: root.fontFamily }
             }
 
             PanelActionButton {
               id: stopBtn
               iconText: "󰅖"
+              tooltipText: "Close the room"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: thread.serving
               Layout.alignment: Qt.AlignVCenter
               onClicked: thread.stop()
-              PanelToolTip { visible: stopBtn.containsMouse; text: "Close the room"; fontFamily: root.fontFamily }
             }
           }
 

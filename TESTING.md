@@ -2,9 +2,28 @@
 
 Everything below has been verified on a Linux box that is **not** running
 Omarchy — the room, the serving, the relay connection and the conformance pass
-are all real. What has never run anywhere is the **QML**: Quickshell needs a
-compositor, so the bar widget itself is the one part of this that is unproven.
-Treat the first three steps as "should just work" and step 4 as the actual test.
+are all real.
+
+The **QML has still never been rendered** — Quickshell needs a compositor — but
+it is no longer unchecked. It was validated against the Omarchy source itself:
+
+- `omarchy-plugin-validate` — the official checker, the same rules the shell
+  applies at load time — **passes, exit 0**.
+- Every component it uses resolves in `shell/Ui/`.
+- Every property it sets exists on that component or a base of it, checked by
+  reading the declarations rather than by memory.
+- `fittedContentWidth`/`fittedContentHeight` exist and take the arity used;
+  `closeRequested` and `textKey` are real signals on `PanelKeyCatcher`.
+- The manifest is structurally identical to the shipped `omarchy.tailscale`
+  one, and the panel's top-level shape matches it too.
+
+That found one real bug, now fixed: four tooltips were nested `PanelToolTip`s
+bound to `containsMouse`, which is public on `ToggleSwitch` and **not** on
+`PanelActionButton` — so they were bound to nothing and would simply never have
+appeared. `PanelActionButton` renders its own tooltip from `tooltipText`.
+
+So: steps 1–3 should just work, and step 4 is still the real test — but the
+failure modes left are the ones no static check can reach.
 
 ## 0. Install
 
