@@ -113,7 +113,7 @@ Documented plainly, because you should know before installing anything:
 |---|---|
 | **Binaries it runs** | `omarchy-thread` (this repo), `wl-copy` (copying the address), `infinite` (only if installed, to open a room), `curl` (only in `verify`) |
 | **Network in** | An HTTP listener on port 7777+ bound to `0.0.0.0`, serving *only* the room directory, while a room is open. Nothing listens when no room is open. |
-| **Network out** | One WebSocket to the presence relay in your world's manifest (default `wss://relay.pixygon.io`), to learn who is inside. Set `OMARCHY_THREAD_RELAY` to point at your own, or delete `presence.relays` from the world to run with no relay at all. |
+| **Network out** | One WebSocket to the relay **your room's manifest names** — rooms this plugin creates name `wss://relay.pixygon.io`. Delete `presence.relays` from the world and nothing connects; `OMARCHY_THREAD_RELAY` is an explicit override for pointing at your own. The manifest is the switch, and the code honours it. |
 | **Files it writes** | `~/Worlds/` (your rooms) and `~/.local/state/omarchy-thread/state.json` (what the bar reads) |
 | **Privileges** | None. No root, no polkit, no system config, no pacman repo, no autostart. |
 | **Accounts** | None required. The relay accepts anonymous travelers; a Passport is optional and only makes you recognisable instead of "traveler 7". |

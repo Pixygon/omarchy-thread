@@ -144,6 +144,9 @@ Panel {
             visible: thread.serving && thread.invite !== ""
             width: parent.width
             text: thread.invite
+            // Wire-derived content is DATA. AutoText would sniff it for markup
+            // and typeset a stranger's <img> tag as a network request.
+            textFormat: Text.PlainText
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -154,6 +157,9 @@ Panel {
             visible: thread.serving
             width: parent.width
             text: thread.relayConnected ? thread.roster : "not watching — the relay is unreachable"
+            // Wire-derived content is DATA. AutoText would sniff it for markup
+            // and typeset a stranger's <img> tag as a network request.
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -164,6 +170,9 @@ Panel {
             visible: thread.actionStatus !== "" || thread.lastError !== ""
             width: parent.width
             text: thread.lastError !== "" ? thread.lastError : thread.actionStatus
+            // Wire-derived content is DATA. AutoText would sniff it for markup
+            // and typeset a stranger's <img> tag as a network request.
+            textFormat: Text.PlainText
             color: thread.lastError !== "" ? root.urgent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -298,6 +307,9 @@ Panel {
                   anchors.verticalCenter: parent.verticalCenter
                   width: parent.width - Style.space(20)
                   text: (modelData.serving ? "◈  " : "◇  ") + String(modelData.title || modelData.room)
+                  // Wire-derived content is DATA. AutoText would sniff it for markup
+                  // and typeset a stranger's <img> tag as a network request.
+                  textFormat: Text.PlainText
                   color: modelData.serving ? root.foreground : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body

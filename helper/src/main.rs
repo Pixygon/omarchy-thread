@@ -289,6 +289,18 @@ fn content_type(path: &str) -> &'static str {
 /// The resolution contract in twenty lines: `.well-known/thread/world.json`,
 /// JSON content type, and `Access-Control-Allow-Origin: *` so a browser on any
 /// origin may read it. Assets resolve relative to the manifest directory.
+/// `path`, if it is a real file that genuinely lives under `root` once every
+/// symlink is resolved — else `None`.
+fn contained_file(root: &Path, path: &Path) -> Option<PathBuf> {
+    let root = root.canonicalize().ok()?;
+    let real = path.canonicalize().ok()?;
+    if real.starts_with(&root) && real.is_file() {
+        Some(real)
+    } else {
+        None
+    }
+}
+
 fn serve_http(dir: PathBuf, port: u16, state: Arc<Mutex<Value>>) {
     let server = match tiny_http::Server::http(("0.0.0.0", port)) {
         Ok(s) => s,
@@ -310,10 +322,18 @@ fn serve_http(dir: PathBuf, port: u16, state: Arc<Mutex<Value>>) {
             Some(rel.to_string())
         };
 
-        // Never serve outside the room directory, whatever the path claims.
-        let safe = mapped.filter(|m| !m.contains("..")).map(|m| dir.join(m));
+        // Never serve outside the room directory, whatever the path claims —
+        // including via a symlink INSIDE the room pointing out of it. The `..`
+        // filter alone let `room/leak -> ~/.ssh` sail through, because the
+        // request path was clean while the filesystem walked elsewhere. So the
+        // resolved file must canonicalize to somewhere under the canonicalized
+        // room root, or it does not exist as far as this server is concerned.
+        let safe = mapped
+            .filter(|m| !m.contains(".."))
+            .map(|m| dir.join(m))
+            .and_then(|p| contained_file(&dir, &p));
         let response = match safe {
-            Some(path) if path.is_file() => {
+            Some(path) => {
                 let body = fs::read(&path).unwrap_or_default();
                 let ctype = content_type(path.to_str().unwrap_or(""));
                 let mut r = tiny_http::Response::from_data(body);
@@ -347,10 +367,15 @@ fn serve_http(dir: PathBuf, port: u16, state: Arc<Mutex<Value>>) {
 /// no body, no pose, no seat in the room. (If the relay is older than the
 /// observe verb it simply won't answer, and the bar shows the room as served
 /// but unwatched — the plugin degrades to a launcher rather than lying.)
-fn watch_presence(world_id: String, state: Arc<Mutex<Value>>) {
+fn watch_presence(world_id: String, relay_base: String, state: Arc<Mutex<Value>>) {
     // rustls will not pick a crypto backend for us; say which one out loud.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let url = format!("{}/thread/{}", relay().trim_end_matches('/'), world_id);
+    // A relay already carrying a room path is used as-is; a bare one gets ours.
+    let url = if relay_base.contains("/thread/") {
+        relay_base.trim_end_matches('/').to_string()
+    } else {
+        format!("{}/thread/{}", relay_base.trim_end_matches('/'), world_id)
+    };
     loop {
         match tungstenite::connect(&url) {
             Ok((mut socket, _)) => {
@@ -406,6 +431,24 @@ fn watch_presence(world_id: String, state: Arc<Mutex<Value>>) {
     }
 }
 
+/// A wire-controlled string, made safe to display.
+///
+/// Occupant names come from whoever connects to the relay, and they end up in
+/// QML `Text` and tooltip fields — where Qt's default `AutoText` sniffs for
+/// markup and will happily typeset `<img src=…>` as rich text, firing network
+/// requests on a stranger's say-so. The QML side also sets `PlainText` on the
+/// fields we own, but the tooltip internals belong to Omarchy, so the strings
+/// are cleaned HERE, at the one door they all come through: no control
+/// characters, no angle brackets, bounded length.
+fn sanitize_display(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .filter(|c| !c.is_control() && *c != '<' && *c != '>')
+        .take(48)
+        .collect();
+    cleaned.trim().to_string()
+}
+
 /// Fold one relay frame into the roster. Returns true when the roster changed.
 fn apply_presence(txt: &str, roster: &mut BTreeMap<u64, String>) -> bool {
     let Ok(v) = serde_json::from_str::<Value>(txt) else {
@@ -414,8 +457,8 @@ fn apply_presence(txt: &str, roster: &mut BTreeMap<u64, String>) -> bool {
     let name_of = |o: &Value, id: u64| -> String {
         o.get("name")
             .and_then(Value::as_str)
+            .map(sanitize_display)
             .filter(|n| !n.is_empty())
-            .map(str::to_string)
             .unwrap_or_else(|| format!("traveler {id}"))
     };
     match v.get("t").and_then(Value::as_str) {
@@ -727,8 +770,22 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
     let title = world
         .pointer("/world/title")
         .and_then(Value::as_str)
-        .unwrap_or(&name)
-        .to_string();
+        .map(|s| sanitize_display(s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| name.clone());
+
+    // The ROOM decides whether anything leaves this machine. The docs promise
+    // that a room's manifest controls the outbound relay connection, and the
+    // code used to break that promise: it connected to the default relay no
+    // matter what the manifest said, so a deliberately solo room still phoned
+    // out. Now: `OMARCHY_THREAD_RELAY` (an explicit dev override) wins, else
+    // the first relay the manifest names, else NO connection at all.
+    let room_relay: Option<String> = std::env::var("OMARCHY_THREAD_RELAY").ok().or_else(|| {
+        world
+            .pointer("/presence/relays")
+            .and_then(Value::as_array)
+            .and_then(|r| r.iter().find_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)))
+    });
 
     let port = free_port(
         std::env::var("OMARCHY_THREAD_PORT")
@@ -747,7 +804,7 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
         "port": port,
         "url": format!("http://{addr}:{port}/.well-known/thread/world.json"),
         "invite": format!("thread://{addr}:{port}"),
-        "relay": relay(),
+        "relay": room_relay.clone(),
         "relay_connected": false,
         "occupants": [],
         "count": 0,
@@ -760,12 +817,12 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
     eprintln!("  address:  thread://{addr}:{port}");
     eprintln!("  manifest: http://{addr}:{port}/.well-known/thread/world.json");
 
-    {
+    if let Some(relay_base) = room_relay {
         let state = Arc::clone(&state);
         let world_id = world_id.clone();
         std::thread::spawn(move || {
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                watch_presence(world_id, Arc::clone(&state))
+                watch_presence(world_id, relay_base, Arc::clone(&state))
             }))
             .is_err()
             {
@@ -1418,5 +1475,43 @@ mod tests {
         let mut roster = BTreeMap::new();
         apply_presence(r#"{"t":"join","id":9}"#, &mut roster);
         assert_eq!(roster.get(&9).map(String::as_str), Some("traveler 9"));
+    }
+}
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn wire_names_cannot_carry_markup() {
+        // The exact attack from the review: a name that is an <img> tag makes
+        // QML's AutoText fire a network request when the roster renders.
+        let evil = sanitize_display("<img src=\"http://evil/x\">bob");
+        assert!(!evil.contains('<') && !evil.contains('>'), "{evil:?}");
+        assert!(evil.contains("bob"), "the human part survives: {evil:?}");
+        assert!(!sanitize_display("<b>loud</b>").contains('<'));
+        assert_eq!(sanitize_display("ada"), "ada");
+        assert_eq!(sanitize_display("Åsa Ødegård"), "Åsa Ødegård", "real names survive");
+        // Control BYTES go; what remains is inert printable text (QML does
+        // not interpret ANSI, so "[31m" left behind is just characters).
+        assert!(sanitize_display("a\u{7}b\u{1b}[31mc").chars().all(|c| !c.is_control()));
+        assert!(sanitize_display(&"x".repeat(500)).chars().count() <= 48, "bounded");
+        assert_eq!(sanitize_display("  spaced  "), "spaced");
+    }
+
+    #[test]
+    fn the_server_does_not_follow_symlinks_out_of_the_room() {
+        let dir = std::env::temp_dir().join(format!("ot-room-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("world.json"), "{}").unwrap();
+        let secret = std::env::temp_dir().join(format!("ot-secret-{}", std::process::id()));
+        fs::write(&secret, "keys").unwrap();
+        std::os::unix::fs::symlink(&secret, dir.join("leak")).unwrap();
+
+        assert!(contained_file(&dir, &dir.join("world.json")).is_some(), "real room files serve");
+        assert!(contained_file(&dir, &dir.join("leak")).is_none(), "an out-pointing symlink is a 404");
+        assert!(contained_file(&dir, &dir.join("missing")).is_none());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_file(&secret);
     }
 }
