@@ -317,7 +317,7 @@ Panel {
           Text {
             visible: !thread.installed
             width: parent.width
-            text: "Install the helper:  yay -S omarchy-thread  —  or see the README"
+            text: "Install the helper: ./install.sh in the plugin folder — see the README"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
