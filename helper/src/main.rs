@@ -441,12 +441,36 @@ fn watch_presence(world_id: String, relay_base: String, state: Arc<Mutex<Value>>
 /// are cleaned HERE, at the one door they all come through: no control
 /// characters, no angle brackets, bounded length.
 fn sanitize_display(s: &str) -> String {
-    let cleaned: String = s
-        .chars()
-        .filter(|c| !c.is_control() && *c != '<' && *c != '>')
-        .take(48)
-        .collect();
-    cleaned.trim().to_string()
+    // Bidi overrides and zero-widths are FORMAT characters, not control
+    // characters — `is_control()` does not catch U+202E, and a name carrying a
+    // right-to-left override can spoof how everything after it reads in the
+    // roster. Credit where due: the micromachee session's sanitizer caught
+    // this class, plus two subtleties adopted here — whitespace folds to a
+    // space rather than vanishing (deleting a tab glued the words either side
+    // together), and the length cap applies AFTER cleaning, or a title of 400
+    // angle brackets sails under the cap and arrives empty.
+    const BANNED: &[char] = &[
+        '<', '>', '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}',
+        '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}', '\u{200B}', '\u{200C}',
+        '\u{200D}', '\u{FEFF}',
+    ];
+    let mut out = String::new();
+    let mut last_space = true; // leading whitespace collapses away
+    for c in s.chars() {
+        let c = if c.is_whitespace() { ' ' } else { c };
+        if c != ' ' && (c.is_control() || BANNED.contains(&c)) {
+            continue;
+        }
+        if c == ' ' && last_space {
+            continue;
+        }
+        last_space = c == ' ';
+        out.push(c);
+        if out.chars().count() >= 48 {
+            break;
+        }
+    }
+    out.trim_end().to_string()
 }
 
 /// Fold one relay frame into the roster. Returns true when the roster changed.
@@ -1494,6 +1518,16 @@ mod security_tests {
         // Control BYTES go; what remains is inert printable text (QML does
         // not interpret ANSI, so "[31m" left behind is just characters).
         assert!(sanitize_display("a\u{7}b\u{1b}[31mc").chars().all(|c| !c.is_control()));
+        // Bidi overrides are FORMAT chars, invisible to is_control(), and a
+        // U+202E can make everything after it read backwards in the roster.
+        for bad in ['\u{202E}', '\u{2066}', '\u{200B}', '\u{FEFF}'] {
+            assert!(!sanitize_display(&format!("ab{bad}cd")).contains(bad));
+        }
+        // A tab is a word gap, not nothing: deleting it glued names together.
+        assert_eq!(sanitize_display("a\tb"), "a b");
+        assert_eq!(sanitize_display("a  \n  b"), "a b", "whitespace collapses");
+        // The cap counts CLEANED characters, or 400 brackets pass it as empty.
+        assert_eq!(sanitize_display(&format!("{}{}", "<".repeat(400), "real name")), "real name");
         assert!(sanitize_display(&"x".repeat(500)).chars().count() <= 48, "bounded");
         assert_eq!(sanitize_display("  spaced  "), "spaced");
     }
