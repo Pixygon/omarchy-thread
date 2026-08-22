@@ -62,7 +62,13 @@ omarchy-thread verify you.com
 
 ## Install
 
-**The plugin** (QML, no build step):
+Through Omarchy's own plugin manager:
+
+```bash
+omarchy plugin add https://github.com/Pixygon/omarchy-thread
+```
+
+Or by hand — same result:
 
 ```bash
 git clone https://github.com/Pixygon/omarchy-thread ~/.config/omarchy/plugins/io.pixygon.thread
@@ -71,7 +77,15 @@ git clone https://github.com/Pixygon/omarchy-thread ~/.config/omarchy/plugins/io
 Then add the **Thread** widget to your bar in Omarchy's bar settings. The
 plugin reloads itself on save, like every Omarchy plugin.
 
-**The helper** (`omarchy-thread`), which does the serving and the watching:
+**The helper** (`omarchy-thread`), which does the serving and the watching —
+built from source, nothing downloaded:
+
+```bash
+cd ~/.config/omarchy/plugins/io.pixygon.thread
+./install.sh          # cargo-builds the helper into ~/.local/bin
+```
+
+or the same two commands it runs:
 
 ```bash
 cd ~/.config/omarchy/plugins/io.pixygon.thread/helper
@@ -103,6 +117,21 @@ Documented plainly, because you should know before installing anything:
 | **Files it writes** | `~/Worlds/` (your rooms) and `~/.local/state/omarchy-thread/state.json` (what the bar reads) |
 | **Privileges** | None. No root, no polkit, no system config, no pacman repo, no autostart. |
 | **Accounts** | None required. The relay accepts anonymous travelers; a Passport is optional and only makes you recognisable instead of "traveler 7". |
+
+## Removing it
+
+Everything it installed, undone:
+
+```bash
+omarchy plugin remove io.pixygon.thread     # or: rm -rf ~/.config/omarchy/plugins/io.pixygon.thread
+rm ~/.local/bin/omarchy-thread              # the helper
+rm -rf ~/.local/state/omarchy-thread        # its state
+```
+
+Your rooms are yours and live in `~/Worlds` — removing the plugin does not
+touch them. Delete that directory too if you want nothing left. If you
+installed the `thread://` link handler, `omarchy-thread handler remove` undoes
+it before you delete the binary.
 
 ## Identity, and thread:// links
 
